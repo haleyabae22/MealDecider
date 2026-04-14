@@ -14,7 +14,6 @@ export function Quiz({ user }: QuizProps) {
 
   const categories = Array.from(new Set(user.meals.map(m => m.category)));
   const cuisines = Array.from(new Set(user.meals.map(m => m.cuisine).filter(Boolean) as string[]));
-  const allTags = Array.from(new Set(user.meals.flatMap(m => m.tags)));
 
   const questions = [
     {

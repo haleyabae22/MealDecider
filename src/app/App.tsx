@@ -1,19 +1,17 @@
-// Place this file in: src/app/App.tsx
-
 import { useState, useEffect } from 'react';
 import { AuthPage } from './components/AuthPage';
 import { Dashboard } from './components/Dashboard';
 import type { User } from './types';
-import { clearToken } from './tokenStorage';
+import { clearToken, retrieveToken } from './tokenStorage';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is already logged in (JWT + user_data both present)
+    // Only restore session if both user data AND a JWT token exist
     const savedUser = localStorage.getItem('user_data');
-    const token = localStorage.getItem('token_data');
+    const token = retrieveToken();
     if (savedUser && token) {
       setCurrentUser(JSON.parse(savedUser));
     }

@@ -5,6 +5,8 @@ import { MealPackages } from './MealPackages';
 import { MealFilter } from './MealFilter';
 import { EditMealModal } from './EditMealModal';
 import { CATEGORIES, CUISINES, PREP_TIMES, FLAVOR_TAGS, TIME_OF_DAY_TAGS, COMMON_TAGS } from '../constants';
+import { buildPath } from './Path';
+import { retrieveToken, storeToken } from '../tokenStorage';
 
 interface MealLibraryProps {
   user: User;
@@ -16,11 +18,9 @@ export function MealLibrary({ user, onUpdateUser }: MealLibraryProps) {
   const [showPackages, setShowPackages] = useState(false);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
   const [filteredMeals, setFilteredMeals] = useState<Meal[]>(user.meals);
+  const [isLoading, setIsLoading] = useState(false);
+  const [message, setMessage] = useState('');
 
-  // Update filtered meals whenever user.meals changes
-  useEffect(() => {
-    setFilteredMeals(user.meals);
-  }, [user.meals]);
   const [newMeal, setNewMeal] = useState({
     name: '',
     category: '',
@@ -35,79 +35,158 @@ export function MealLibrary({ user, onUpdateUser }: MealLibraryProps) {
   const [customFlavorTag, setCustomFlavorTag] = useState('');
   const [customTimeTag, setCustomTimeTag] = useState('');
 
-  const handleAddMeal = () => {
+  useEffect(() => {
+    setFilteredMeals(user.meals);
+  }, [user.meals]);
+
+  // ── Fetch all meals on load ──────────────────────────────────
+  useEffect(() => {
+    const fetchMeals = async () => {
+      setIsLoading(true);
+      try {
+        const obj = { userId: user.id, jwtToken: retrieveToken() };
+        const js = JSON.stringify(obj);
+        const response = await fetch(buildPath('api/getmeals'), {
+          method: 'POST',
+          body: js,
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const res = JSON.parse(await response.text());
+        if (res.error && res.error.length > 0) {
+          setMessage('Failed to load meals: ' + res.error);
+          return;
+        }
+        if (res.jwtToken) storeToken(res.jwtToken);
+        const updatedUser = { ...user, meals: res.meals || [] };
+        localStorage.setItem('user_data', JSON.stringify(updatedUser));
+        onUpdateUser(updatedUser);
+      } catch (e: any) {
+        setMessage('Failed to load meals.');
+        console.log(e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchMeals();
+  }, []);
+
+  // ── Add meal ─────────────────────────────────────────────────
+  const handleAddMeal = async () => {
     if (!newMeal.name || !newMeal.category) {
       alert('Please fill in at least name and category');
       return;
     }
-
-    const meal: Meal = {
-      id: Date.now().toString(),
-      name: newMeal.name,
-      category: newMeal.category,
-      tags: newMeal.tags,
-      prepTime: newMeal.prepTime || undefined,
-      cuisine: newMeal.cuisine || undefined,
-      flavorTags: newMeal.flavorTags,
-      timeOfDayTags: newMeal.timeOfDayTags,
-      notes: newMeal.notes || undefined
-    };
-
-    const updatedUser = {
-      ...user,
-      meals: [...user.meals, meal]
-    };
-
-    updateUserData(updatedUser);
-    setNewMeal({
-      name: '',
-      category: '',
-      tags: [],
-      prepTime: '',
-      cuisine: '',
-      flavorTags: [],
-      timeOfDayTags: [],
-      notes: ''
-    });
-    setShowAddForm(false);
-  };
-
-  const handleDeleteMeal = (mealId: string) => {
-    const updatedUser = {
-      ...user,
-      meals: user.meals.filter(m => m.id !== mealId)
-    };
-    updateUserData(updatedUser);
-  };
-
-  const handleEditMeal = (editedMeal: Meal) => {
-    const updatedUser = {
-      ...user,
-      meals: user.meals.map(m => m.id === editedMeal.id ? editedMeal : m)
-    };
-    updateUserData(updatedUser);
-  };
-
-  const updateUserData = (updatedUser: User) => {
-    // Update users array in localStorage
-    const usersData = localStorage.getItem('users');
-    const users: User[] = usersData ? JSON.parse(usersData) : [];
-    const userIndex = users.findIndex(u => u.id === user.id);
-    if (userIndex !== -1) {
-      users[userIndex] = updatedUser;
-      localStorage.setItem('users', JSON.stringify(users));
+    try {
+      const meal = {
+        name: newMeal.name,
+        category: newMeal.category,
+        tags: newMeal.tags,
+        prepTime: newMeal.prepTime || undefined,
+        cuisine: newMeal.cuisine || undefined,
+        flavorTags: newMeal.flavorTags,
+        timeOfDayTags: newMeal.timeOfDayTags,
+        notes: newMeal.notes || undefined
+      };
+      const obj = { userId: user.id, meal, jwtToken: retrieveToken() };
+      const js = JSON.stringify(obj);
+      const response = await fetch(buildPath('api/addmeal'), {
+        method: 'POST',
+        body: js,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const res = JSON.parse(await response.text());
+      if (res.error && res.error.length > 0) {
+        setMessage('Error adding meal: ' + res.error);
+        return;
+      }
+      if (res.jwtToken) storeToken(res.jwtToken);
+      const updatedUser = { ...user, meals: [...user.meals, { ...meal, id: res.mealId }] };
+      localStorage.setItem('user_data', JSON.stringify(updatedUser));
+      onUpdateUser(updatedUser);
+      setNewMeal({ name: '', category: '', tags: [], prepTime: '', cuisine: '', flavorTags: [], timeOfDayTags: [], notes: '' });
+      setShowAddForm(false);
+      setMessage('Meal added!');
+    } catch (e: any) {
+      setMessage('Error adding meal.');
+      console.log(e);
     }
-    localStorage.setItem('currentUser', JSON.stringify(updatedUser));
-    onUpdateUser(updatedUser);
   };
 
-  const handleAddPackage = (meals: Meal[]) => {
-    const updatedUser = {
-      ...user,
-      meals: [...user.meals, ...meals]
-    };
-    updateUserData(updatedUser);
-    setShowPackages(false);
+  // ── Delete meal ──────────────────────────────────────────────
+  const handleDeleteMeal = async (mealId: string) => {
+    try {
+      const obj = { userId: user.id, mealId, jwtToken: retrieveToken() };
+      const js = JSON.stringify(obj);
+      const response = await fetch(buildPath('api/deletemeal'), {
+        method: 'POST',
+        body: js,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const res = JSON.parse(await response.text());
+      if (res.error && res.error.length > 0) {
+        setMessage('Error deleting meal: ' + res.error);
+        return;
+      }
+      if (res.jwtToken) storeToken(res.jwtToken);
+      const updatedUser = { ...user, meals: user.meals.filter(m => m.id !== mealId) };
+      localStorage.setItem('user_data', JSON.stringify(updatedUser));
+      onUpdateUser(updatedUser);
+    } catch (e: any) {
+      setMessage('Error deleting meal.');
+      console.log(e);
+    }
+  };
+
+  // ── Edit meal ────────────────────────────────────────────────
+  const handleEditMeal = async (editedMeal: Meal) => {
+    try {
+      const obj = { userId: user.id, mealId: editedMeal.id, meal: editedMeal, jwtToken: retrieveToken() };
+      const js = JSON.stringify(obj);
+      const response = await fetch(buildPath('api/editmeal'), {
+        method: 'PUT',
+        body: js,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const res = JSON.parse(await response.text());
+      if (res.error && res.error.length > 0) {
+        setMessage('Error editing meal: ' + res.error);
+        return;
+      }
+      if (res.jwtToken) storeToken(res.jwtToken);
+      const updatedUser = { ...user, meals: user.meals.map(m => m.id === editedMeal.id ? editedMeal : m) };
+      localStorage.setItem('user_data', JSON.stringify(updatedUser));
+      onUpdateUser(updatedUser);
+      setEditingMeal(null);
+    } catch (e: any) {
+      setMessage('Error editing meal.');
+      console.log(e);
+    }
+  };
+
+  // ── Add package meals ────────────────────────────────────────
+  const handleAddPackage = async (meals: Meal[]) => {
+    try {
+      const obj = { userId: user.id, meals, jwtToken: retrieveToken() };
+      const js = JSON.stringify(obj);
+      const response = await fetch(buildPath('api/addmeals'), {
+        method: 'POST',
+        body: js,
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const res = JSON.parse(await response.text());
+      if (res.error && res.error.length > 0) {
+        setMessage('Error adding package: ' + res.error);
+        return;
+      }
+      if (res.jwtToken) storeToken(res.jwtToken);
+      const updatedUser = { ...user, meals: [...user.meals, ...meals] };
+      localStorage.setItem('user_data', JSON.stringify(updatedUser));
+      onUpdateUser(updatedUser);
+      setShowPackages(false);
+    } catch (e: any) {
+      setMessage('Error adding package.');
+      console.log(e);
+    }
   };
 
   const toggleTag = (tag: string, field: 'tags' | 'flavorTags' | 'timeOfDayTags') => {
@@ -150,6 +229,8 @@ export function MealLibrary({ user, onUpdateUser }: MealLibraryProps) {
             </button>
           </div>
         </div>
+
+        {message && <p className="text-sm text-muted-foreground mb-3">{message}</p>}
 
         <MealFilter meals={user.meals} onFilteredMeals={setFilteredMeals} />
 
@@ -343,7 +424,11 @@ export function MealLibrary({ user, onUpdateUser }: MealLibraryProps) {
           </div>
         )}
 
-        {filteredMeals.length === 0 ? (
+        {isLoading ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>Loading your meals...</p>
+          </div>
+        ) : filteredMeals.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <p>No meals found.</p>
             <p className="text-sm mt-2">Try adjusting your filters or add some meals!</p>
@@ -390,10 +475,7 @@ export function MealLibrary({ user, onUpdateUser }: MealLibraryProps) {
                         {meal.timeOfDayTags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mb-1">
                             {meal.timeOfDayTags.map(tag => (
-                              <span
-                                key={tag}
-                                className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded"
-                              >
+                              <span key={tag} className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">
                                 {tag}
                               </span>
                             ))}
@@ -403,10 +485,7 @@ export function MealLibrary({ user, onUpdateUser }: MealLibraryProps) {
                         {meal.flavorTags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mb-1">
                             {meal.flavorTags.map(tag => (
-                              <span
-                                key={tag}
-                                className="text-xs bg-secondary text-secondary-foreground px-2 py-0.5 rounded"
-                              >
+                              <span key={tag} className="text-xs bg-secondary text-secondary-foreground px-2 py-0.5 rounded">
                                 {tag}
                               </span>
                             ))}
@@ -416,10 +495,7 @@ export function MealLibrary({ user, onUpdateUser }: MealLibraryProps) {
                         {meal.tags.length > 0 && (
                           <div className="flex flex-wrap gap-1">
                             {meal.tags.map(tag => (
-                              <span
-                                key={tag}
-                                className="text-xs bg-accent text-accent-foreground px-2 py-0.5 rounded"
-                              >
+                              <span key={tag} className="text-xs bg-accent text-accent-foreground px-2 py-0.5 rounded">
                                 {tag}
                               </span>
                             ))}
