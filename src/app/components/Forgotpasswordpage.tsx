@@ -1,17 +1,5 @@
 import { useState } from 'react';
 
-// ─── ForgotPasswordPage ───────────────────────────────────────────────────────
-// Drop this file at: src/app/components/ForgotPasswordPage.tsx
-//
-// Since this project uses localStorage for auth (no real backend), the reset
-// flow runs entirely client-side:
-//   Step 1 – user enters email  →  a 6-digit code is generated (shown in-page
-//             since there is no email server; swap for a fetch() when you add
-//             a real backend)
-//   Step 2 – user enters code + new password  →  localStorage is updated
-//   Step 3 – success screen
-// ─────────────────────────────────────────────────────────────────────────────
-
 interface ForgotPasswordPageProps {
   onBack: () => void;
 }
